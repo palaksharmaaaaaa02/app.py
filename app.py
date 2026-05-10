@@ -1,321 +1,220 @@
 import streamlit as st
-import pdfplumber
-import pandas as pd
-from datetime import datetime
+from pdfminer.high_level import extract_text
+import re
+from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 
-# ---------------- PAGE CONFIG ---------------- #
-st.set_page_config(
-    page_title="AI Resume Analyzer",
-    page_icon="📄",
-    layout="wide"
-)
+# --------------------------
+# PAGE CONFIG
+# --------------------------
+st.set_page_config(page_title="AI Resume Analyzer", layout="wide")
 
-# ---------------- CUSTOM STYLING ---------------- #
-st.markdown("""
-<style>
+st.markdown("<h1 style='text-align:center;'>AI Resume Analyzer</h1>", unsafe_allow_html=True)
+st.markdown("<p style='text-align:center;'>AI-powered resume evaluation with ATS-style scoring</p>", unsafe_allow_html=True)
 
-.main {
-    padding: 2rem;
-}
+st.divider()
 
-.stApp {
-    background-color: #0f172a;
-    color: white;
-}
-
-h1, h2, h3 {
-    color: #38bdf8;
-}
-
-.card {
-    background-color: #1e293b;
-    padding: 20px;
-    border-radius: 15px;
-    margin-bottom: 20px;
-}
-
-.skill {
-    background-color: #334155;
-    padding: 8px 14px;
-    border-radius: 8px;
-    display: inline-block;
-    margin: 5px;
-}
-
-</style>
-""", unsafe_allow_html=True)
-
-# ---------------- TITLE ---------------- #
-st.title("📄 AI Resume Analyzer")
-st.write(
-    "Upload your resume to receive ATS-style analysis, "
-    "skill insights, and role recommendations."
-)
-
-# ---------------- ROLE DATABASE ---------------- #
-roles = {
-
-    "Frontend Developer": [
-        "html",
-        "css",
-        "javascript",
-        "react",
-        "tailwind",
-        "typescript"
-    ],
-
-    "Backend Developer": [
-        "python",
-        "java",
-        "node",
-        "sql",
-        "api",
-        "mongodb"
-    ],
-
-    "Data Scientist": [
-        "python",
-        "machine learning",
-        "pandas",
-        "numpy",
-        "tensorflow",
-        "sql"
-    ],
-
-    "AI Engineer": [
-        "python",
-        "deep learning",
-        "nlp",
-        "pytorch",
-        "tensorflow",
-        "machine learning"
-    ]
-}
-
-# ---------------- FILE UPLOAD ---------------- #
-uploaded_file = st.file_uploader(
-    "Upload Resume (PDF)",
-    type=["pdf"]
-)
-
-# ---------------- PDF TEXT EXTRACTION ---------------- #
-def extract_text(file):
-
-    text = ""
-
-    with pdfplumber.open(file) as pdf:
-
-        for page in pdf.pages:
-
-            content = page.extract_text()
-
-            if content:
-                text += content.lower()
-
+# --------------------------
+# CLEAN TEXT
+# --------------------------
+def clean_text(text):
+    text = text.lower()
+    text = re.sub(r'\n', ' ', text)
+    text = re.sub(r'[^a-z0-9\s]', '', text)
     return text
 
-# ---------------- ANALYSIS FUNCTION ---------------- #
-def analyze_resume(text):
+# --------------------------
+# PDF EXTRACT
+# --------------------------
+def extract_pdf(file):
+    return extract_text(file)
 
-    best_role = ""
-    best_score = 0
-    detected_skills = []
+# --------------------------
+# SKILL EXTRACTION
+# --------------------------
+def extract_skills(text):
 
-    for role, skills in roles.items():
+    text = text.lower()
 
-        matched = []
+    skill_map = {
+        "Programming": ["python", "java", "c++"],
+        "Web Development": ["html", "css", "javascript", "react", "node", "flask", "django", "api"],
+        "Data & Analytics": ["sql", "excel", "pandas", "numpy", "power bi", "analytics"],
+        "Machine Learning": ["machine learning", "ml", "tensorflow", "keras", "nlp"],
+        "Cloud & DevOps": ["aws", "azure", "docker", "kubernetes"],
+        "Tools": ["git", "github"],
+        "Soft Skills": ["communication", "teamwork"]
+    }
 
-        for skill in skills:
+    detected = []
 
-            if skill in text:
-                matched.append(skill)
+    for category, keywords in skill_map.items():
+        if any(k in text for k in keywords):
+            detected.append(category)
 
-        score = int(
-            (len(matched) / len(skills)) * 100
-        )
+    return detected
 
-        if score > best_score:
+# --------------------------
+# JOB ROLES
+# --------------------------
+JOB_ROLES = {
+    "Python Developer": "Build backend systems, APIs, and scalable applications.",
+    "Full Stack Developer": "Develop frontend and backend applications.",
+    "Data Analyst": "Analyze data and generate insights.",
+    "Machine Learning Engineer": "Build and deploy ML models.",
+    "DevOps Engineer": "Manage cloud infrastructure and automation.",
+    "Software Engineer": "Develop scalable software systems."
+}
 
-            best_score = score
-            best_role = role
-            detected_skills = matched
+# --------------------------
+# ATS SCORE (STABLE)
+# --------------------------
+def ats_score(resume, jd, resume_skills, jd_skills, exp):
 
-    missing_skills = [
+    vectorizer = CountVectorizer(ngram_range=(1,2))
+    matrix = vectorizer.fit_transform([resume, jd])
+    base = cosine_similarity(matrix[0:1], matrix[1:2])[0][0] * 100
 
-        skill for skill in roles[best_role]
-
-        if skill not in detected_skills
-    ]
-
-    return (
-        best_role,
-        best_score,
-        detected_skills,
-        missing_skills
-    )
-
-# ---------------- MAIN APP ---------------- #
-if uploaded_file:
-
-    st.success("Resume uploaded successfully.")
-
-    resume_text = extract_text(uploaded_file)
-
-    (
-        best_role,
-        best_score,
-        detected_skills,
-        missing_skills
-    ) = analyze_resume(resume_text)
-
-    # ---------------- DASHBOARD ---------------- #
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        st.metric(
-            label="🎯 Recommended Role",
-            value=best_role
-        )
-
-    with col2:
-        st.metric(
-            label="📊 ATS Score",
-            value=f"{best_score}%"
-        )
-
-    with col3:
-        st.metric(
-    label="📌 Skills Identified",
-    value=len(detected_skills)
-)
-
-    st.divider()
-
-    # ---------------- SCORE BAR ---------------- #
-    st.subheader("ATS Compatibility Score")
-
-    st.progress(best_score / 100)
-
-    if best_score >= 80:
-        st.success(
-            "Your resume is well optimized for ATS systems."
-        )
-
-    elif best_score >= 60:
-        st.warning(
-            "Your resume is good but can be improved further."
-        )
-
+    if len(jd_skills) == 0:
+        skill_score = 65
     else:
-        st.error(
-            "Your resume requires more relevant technical skills."
-        )
+        matched = len(set(resume_skills) & set(jd_skills))
+        skill_score = (matched / max(len(jd_skills), 1)) * 100
 
-    st.divider()
+    exp_score = min(exp * 5, 25)
 
-    # ---------------- DETECTED SKILLS ---------------- #
-    st.subheader("Detected Skills")
+    score = (0.35 * base) + (0.5 * skill_score) + (0.15 * exp_score)
 
-    for skill in detected_skills:
+    score = 60 + (score * 0.4)
 
-        st.markdown(
-            f"<span class='skill'>✅ {skill}</span>",
-            unsafe_allow_html=True
-        )
+    return round(min(score, 95), 2)
 
-    st.divider()
+# --------------------------
+# INPUT
+# --------------------------
+uploaded_file = st.file_uploader("📄 Upload Resume (PDF)", type=["pdf"])
 
-    # ---------------- MISSING SKILLS ---------------- #
-    st.subheader("Suggested Skills to Add")
+selected_role = st.selectbox("💼 Select Job Role", list(JOB_ROLES.keys()))
+job_description = JOB_ROLES[selected_role]
 
-    if missing_skills:
+experience = st.number_input("🧑‍💼 Years of Experience", 0, 20, 0)
 
-        for skill in missing_skills:
+st.divider()
 
-            st.markdown(
-                f"<span class='skill'>⚠️ {skill}</span>",
-                unsafe_allow_html=True
-            )
+# --------------------------
+# ANALYSIS
+# --------------------------
+if uploaded_file and job_description:
 
-    else:
-        st.success(
-            "No major missing skills detected."
-        )
+    if st.button("🚀 Analyze Resume"):
 
-    st.divider()
+        resume_text = extract_pdf(uploaded_file)
 
-    # ---------------- ANALYTICS TABLE ---------------- #
-    st.subheader("Skill Analysis Report")
+        resume_clean = clean_text(resume_text)
+        jd_clean = clean_text(job_description)
 
-    report_df = pd.DataFrame({
+        resume_skills = extract_skills(resume_clean)
+        jd_skills = extract_skills(jd_clean)
 
-        "Detected Skills": pd.Series(
-            detected_skills
-        ),
+        score = ats_score(resume_clean, jd_clean, resume_skills, jd_skills, experience)
 
-        "Suggested Skills": pd.Series(
-            missing_skills
-        )
-    })
+        # --------------------------
+        # REPORT HEADER
+        # --------------------------
+        st.markdown("## 📊 Candidate Match Analysis Report")
 
-    st.dataframe(
-    report_df,
-    use_container_width=True,
-    hide_index=True
-)
+        st.metric("Compatibility Score", f"{score}%")
 
-    st.divider()
+        # --------------------------
+        # PROFESSIONAL STATUS BADGE (REPLACED GREEN BLOCK)
+        # --------------------------
+        if score >= 80:
 
-    # ---------------- RESUME TIPS ---------------- #
-    st.subheader("Professional Resume Tips")
+            st.markdown("""
+            <div style="
+                padding: 18px;
+                border-radius: 10px;
+                background: #e8f5e9;
+                border-left: 6px solid #2e7d32;
+                font-size: 16px;
+                font-weight: 600;
+                color: #1b5e20;
+                margin-top: 10px;
+            ">
+                ✔ High Compatibility Profile — Strong alignment with job requirements
+            </div>
+            """, unsafe_allow_html=True)
 
-    tips = [
+        elif score >= 65:
 
-        "Use measurable achievements in projects.",
+            st.markdown("""
+            <div style="
+                padding: 18px;
+                border-radius: 10px;
+                background: #fff8e1;
+                border-left: 6px solid #ffb300;
+                font-size: 16px;
+                font-weight: 600;
+                color: #6d4c41;
+                margin-top: 10px;
+            ">
+                ⚠ Moderate Compatibility Profile — Some improvements required
+            </div>
+            """, unsafe_allow_html=True)
 
-        "Add GitHub and LinkedIn profile links.",
+        else:
 
-        "Keep formatting simple and ATS-friendly.",
+            st.markdown("""
+            <div style="
+                padding: 18px;
+                border-radius: 10px;
+                background: #ffebee;
+                border-left: 6px solid #c62828;
+                font-size: 16px;
+                font-weight: 600;
+                color: #b71c1c;
+                margin-top: 10px;
+            ">
+                ✖ Low Compatibility Profile — Resume needs optimization
+            </div>
+            """, unsafe_allow_html=True)
 
-        "Mention certifications and internships.",
+        st.divider()
 
-        "Use strong action verbs such as "
-        "'Developed', 'Built', and 'Implemented'."
-    ]
+        # --------------------------
+        # SKILLS
+        # --------------------------
+        col1, col2 = st.columns(2)
 
-    for tip in tips:
-        st.write(f"• {tip}")
+        with col1:
+            st.subheader("🧠 Resume Skill Areas")
+            if resume_skills:
+                for s in resume_skills:
+                    st.write(f"✔ {s}")
+            else:
+                st.info("Basic skill signals detected")
 
-    st.divider()
+        with col2:
+            st.subheader("📌 Expected Skill Areas")
+            if jd_skills:
+                for s in jd_skills:
+                    st.write(f"🔹 {s}")
+            else:
+                st.info("Key job competencies identified from role description")
 
-    # ---------------- DOWNLOAD REPORT ---------------- #
-    report = f"""
-AI Resume Analyzer Report
-Generated On: {datetime.now()}
+        st.divider()
 
-Recommended Role:
-{best_role}
+        # --------------------------
+        # IMPROVEMENTS
+        # --------------------------
+        st.markdown("## 💡 Improvement Insights")
 
-ATS Score:
-{best_score}%
-
-Detected Skills:
-{", ".join(detected_skills)}
-
-Suggested Skills:
-{", ".join(missing_skills)}
-"""
-
-    st.download_button(
-
-        label="⬇ Download Analysis Report",
-
-        data=report,
-
-        file_name="resume_analysis_report.txt"
-    )
-
-else:
-    st.info(
-        "Upload a PDF resume to begin analysis."
-    )
+        if score < 80:
+            st.markdown("""
+✔ Add missing role-specific keywords  
+✔ Highlight measurable achievements  
+✔ Improve project descriptions  
+✔ Use structured ATS-friendly format  
+""")
+        else:
+            st.success("Resume is well aligned with role requirements.")
